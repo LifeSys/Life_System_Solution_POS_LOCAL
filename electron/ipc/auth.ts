@@ -53,3 +53,9 @@ function authDebug(message: string, detail?: Record<string, unknown>) {
     console.debug(`[auth] ${message}`, detail ?? {});
   }
 }
+
+function authDebug(message: string, detail?: Record<string, unknown>) {
+  if (process.env.LSS_AUTH_DEBUG === '1') {
+    console.debug(`[auth] ${message}`, detail ?? {});
+  }
+}
