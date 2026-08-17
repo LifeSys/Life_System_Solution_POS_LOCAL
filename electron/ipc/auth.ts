@@ -2,14 +2,7 @@ import { ipcMain } from 'electron';
 import bcrypt from 'bcryptjs';
 import { getPrisma } from '../data/prisma.js';
 import type { CreateAdminRequest, LoginRequest } from '../../shared/ipc.js';
-
-const wrap = async <T>(fn: () => Promise<T>) => {
-  try {
-    return { ok: true as const, data: await fn() };
-  } catch (e) {
-    return { ok: false as const, error: e instanceof Error ? e.message : 'Unknown error' };
-  }
-};
+import { safeDetail, wrap } from './helpers.js';
 
 export function registerAuthIpc() {
   ipcMain.handle('auth:login', (_e, req: LoginRequest) => wrap(async () => {
@@ -31,6 +24,7 @@ export function registerAuthIpc() {
       const matches = await bcrypt.compare(req.pin, user.pin_hash);
       authDebug('bcrypt comparison completed', { userId: user.id, role: user.rol, matches });
       if (matches) {
+        await getPrisma().auditLog.create({ data: { user_id: user.id, accion: 'LOGIN_SUCCESS', detalle_json: safeDetail({ userId: user.id, rol: user.rol }) } });
         return { id: user.id, nombre: user.nombre, rol: user.rol };
       }
     }
@@ -46,7 +40,18 @@ export function registerAuthIpc() {
     const user = await prisma.user.create({ data: { nombre: req.nombre.trim(), pin_hash: bcrypt.hashSync(req.pin, 10), rol: 'ADMIN', activo: true } });
     return { id: user.id, nombre: user.nombre, rol: user.rol };
   }));
-  ipcMain.handle('auth:logout', () => ({ ok: true, data: true }));
+  ipcMain.handle('auth:logout', (_e, userId?: string) => wrap(async () => {
+    if (userId) {
+      await getPrisma().auditLog.create({ data: { user_id: userId, accion: 'LOGOUT', detalle_json: safeDetail({ userId }) } });
+    }
+    return true;
+  }));
+}
+
+function authDebug(message: string, detail?: Record<string, unknown>) {
+  if (process.env.LSS_AUTH_DEBUG === '1') {
+    console.debug(`[auth] ${message}`, detail ?? {});
+  }
 }
 
 function authDebug(message: string, detail?: Record<string, unknown>) {
