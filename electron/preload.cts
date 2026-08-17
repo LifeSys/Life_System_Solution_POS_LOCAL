@@ -14,7 +14,7 @@ const api: Api = {
   dashboard: { summary: (user) => invoke('dashboard:summary', user) },
   users: { list: (actorId) => invoke('users:list', actorId), create: (request) => invoke('users:create', request), update: (request) => invoke('users:update', request) },
   audit: { list: (actorId) => invoke('audit:list', actorId) },
-  orders: { create: (request) => invoke('orders:create', request), updateStatus: (request) => invoke('orders:updateStatus', request), list: (user) => invoke('orders:list', user), getById: (id) => invoke('orders:getById', id) },
+  orders: { create: (request) => invoke('orders:create', request), pay: (request) => invoke('orders:pay', request), updateStatus: (request) => invoke('orders:updateStatus', request), list: (user) => invoke('orders:list', user), getById: (id) => invoke('orders:getById', id) },
   inventory: { get: () => invoke('inventory:get'), adjust: (request) => invoke('inventory:adjust', request) },
   cash: { current: () => invoke('cash:current'), list: () => invoke('cash:list'), open: (request) => invoke('cash:open', request), close: (request) => invoke('cash:close', request), registerMovement: (request) => invoke('cash:registerMovement', request), getBalance: (id) => invoke('cash:getBalance', id) },
   products: { list: () => invoke('products:list'), create: (request) => invoke('products:create', request), update: (request) => invoke('products:update', request) }
