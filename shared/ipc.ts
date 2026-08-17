@@ -1,0 +1,20 @@
+export type DbConfig = { host: string; port: number; user: string; password: string; database: string };
+export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: string };
+export type LoginRequest = { pin: string };
+export type UserSession = { id: string; nombre: string; rol: 'ADMIN' | 'CAJERO' | 'MESERO' | 'COCINA' };
+export type CreateOrderRequest = { mesa?: string; userId: string; items: Array<{ variantId: string; cantidad: number }> };
+export type UpdateOrderStatusRequest = { orderId: string; estado: 'PENDIENTE' | 'EN_COCINA' | 'LISTO' | 'PAGADO' | 'CANCELADO'; userId: string; cashRegisterId?: string };
+export type InventoryAdjustRequest = { variantId: string; delta: number; userId: string; reason: string };
+export type CashOpenRequest = { userId: string; initialAmount: string };
+export type CashCloseRequest = { cashRegisterId: string; userId: string };
+export type CashMovementRequest = { cashRegisterId: string; userId: string; tipo: 'GASTO' | 'RETIRO' | 'DEPOSITO'; monto: string; detalle?: Record<string, unknown> };
+export type ProductInput = { nombre: string; categoria: string; variants?: Array<{ nombre: string; precio: string; stock?: number }> };
+export type ProductUpdateRequest = { id: string } & Partial<ProductInput>;
+export type Api = {
+  config: { exists(): Promise<IpcResult<boolean>>; save(config: DbConfig): Promise<IpcResult<boolean>> };
+  auth: { login(request: LoginRequest): Promise<IpcResult<UserSession>>; logout(): Promise<IpcResult<boolean>> };
+  orders: { create(request: CreateOrderRequest): Promise<IpcResult<unknown>>; updateStatus(request: UpdateOrderStatusRequest): Promise<IpcResult<unknown>>; list(): Promise<IpcResult<unknown[]>>; getById(id: string): Promise<IpcResult<unknown>> };
+  inventory: { get(): Promise<IpcResult<unknown[]>>; adjust(request: InventoryAdjustRequest): Promise<IpcResult<unknown>> };
+  cash: { open(request: CashOpenRequest): Promise<IpcResult<unknown>>; close(request: CashCloseRequest): Promise<IpcResult<unknown>>; registerMovement(request: CashMovementRequest): Promise<IpcResult<unknown>>; getBalance(cashRegisterId: string): Promise<IpcResult<string>> };
+  products: { list(): Promise<IpcResult<unknown[]>>; create(request: ProductInput): Promise<IpcResult<unknown>>; update(request: ProductUpdateRequest): Promise<IpcResult<unknown>> };
+};
