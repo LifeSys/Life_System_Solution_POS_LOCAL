@@ -4,6 +4,8 @@ import { getPrisma } from '../data/prisma.js';
 import type { CreateAdminRequest, LoginRequest } from '../../shared/ipc.js';
 import { safeDetail, wrap } from './helpers.js';
 
+const AUTH_DEBUG_ENABLED = process.env.LSS_AUTH_DEBUG === '1';
+
 export function registerAuthIpc() {
   ipcMain.handle('auth:login', (_e, req: LoginRequest) => wrap(async () => {
     authDebug('auth:login received', { pinLength: req.pin?.length ?? 0 });
@@ -49,13 +51,5 @@ export function registerAuthIpc() {
 }
 
 function authDebug(message: string, detail?: Record<string, unknown>) {
-  if (process.env.LSS_AUTH_DEBUG === '1') {
-    console.debug(`[auth] ${message}`, detail ?? {});
-  }
-}
-
-function authDebug(message: string, detail?: Record<string, unknown>) {
-  if (process.env.LSS_AUTH_DEBUG === '1') {
-    console.debug(`[auth] ${message}`, detail ?? {});
-  }
+  if (AUTH_DEBUG_ENABLED) console.debug(`[auth] ${message}`, detail ?? {});
 }
