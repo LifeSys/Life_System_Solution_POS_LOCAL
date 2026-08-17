@@ -1,0 +1,21 @@
+appId: com.lifesystemsolution.pos
+productName: Life System Solution POS
+files:
+  - dist-renderer/**
+  - dist-electron/**
+  - prisma/**
+  - package.json
+extraResources:
+  - from: prisma
+    to: prisma
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

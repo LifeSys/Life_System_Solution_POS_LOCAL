@@ -1,0 +1,137 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  CAJERO
+  MESERO
+  COCINA
+}
+
+enum OrderStatus {
+  PENDIENTE
+  EN_COCINA
+  LISTO
+  PAGADO
+  CANCELADO
+}
+
+enum CashRegisterStatus {
+  ABIERTA
+  CERRADA
+}
+
+enum CashMovementType {
+  VENTA
+  GASTO
+  APERTURA
+  RETIRO
+  DEPOSITO
+}
+
+model User {
+  id            String         @id @default(cuid())
+  nombre        String
+  pin_hash      String
+  rol           UserRole
+  activo        Boolean        @default(true)
+  orders        Order[]
+  openedCash    CashRegister[] @relation("OpenedBy")
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+model Product {
+  id         String           @id @default(cuid())
+  nombre     String
+  categoria  String
+  variants   ProductVariant[]
+
+  @@map("products")
+}
+
+model ProductVariant {
+  id          String      @id @default(cuid())
+  product_id  String
+  nombre      String
+  precio      Decimal     @db.Decimal(12, 2)
+  product     Product     @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  inventory   Inventory?
+  orderItems  OrderItem[]
+
+  @@map("product_variants")
+}
+
+model Inventory {
+  variant_id     String         @id
+  current_stock  Int            @default(0)
+  variant        ProductVariant @relation(fields: [variant_id], references: [id], onDelete: Cascade)
+
+  @@map("inventory")
+}
+
+model Order {
+  id          String       @id @default(cuid())
+  mesa        String?
+  estado      OrderStatus  @default(PENDIENTE)
+  user_id     String
+  created_at  DateTime     @default(now())
+  user        User         @relation(fields: [user_id], references: [id])
+  items       OrderItem[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id               String         @id @default(cuid())
+  order_id         String
+  variant_id       String
+  cantidad         Int
+  precio_unitario  Decimal        @db.Decimal(12, 2)
+  order            Order          @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  variant          ProductVariant @relation(fields: [variant_id], references: [id])
+
+  @@map("order_items")
+}
+
+model CashRegister {
+  id              String             @id @default(cuid())
+  opened_by       String
+  initial_amount  Decimal            @db.Decimal(12, 2)
+  status          CashRegisterStatus @default(ABIERTA)
+  opened_at       DateTime           @default(now())
+  closed_at       DateTime?
+  openedBy        User               @relation("OpenedBy", fields: [opened_by], references: [id])
+  movements       CashMovement[]
+
+  @@map("cash_registers")
+}
+
+model CashMovement {
+  id                 String           @id @default(cuid())
+  cash_register_id   String
+  tipo               CashMovementType
+  monto              Decimal          @db.Decimal(12, 2)
+  created_at         DateTime         @default(now())
+  cashRegister       CashRegister     @relation(fields: [cash_register_id], references: [id], onDelete: Cascade)
+
+  @@map("cash_movements")
+}
+
+model AuditLog {
+  id            String    @id @default(cuid())
+  user_id       String
+  accion        String
+  detalle_json  Json
+  created_at    DateTime  @default(now())
+  user          User      @relation(fields: [user_id], references: [id])
+
+  @@map("audit_logs")
+}
