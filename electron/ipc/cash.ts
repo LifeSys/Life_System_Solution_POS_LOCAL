@@ -47,15 +47,15 @@ export function registerCashIpc() {
     await requireRole(tx, req.userId, ['ADMIN', 'CAJERO']);
     if (req.tipo === 'VENTA') throw new Error('Las ventas se registran al pagar un pedido');
     if (Number(req.monto) <= 0) throw new Error('El monto debe ser mayor a cero');
-    const cash = await tx.cashRegister.findUnique({ where: { id: req.cashRegisterId }, include: includeCash });
+    const cash = req.cashRegisterId ? await tx.cashRegister.findUnique({ where: { id: req.cashRegisterId }, include: includeCash }) : await tx.cashRegister.findFirst({ where: { status: 'ABIERTA' }, include: includeCash, orderBy: { opened_at: 'desc' } });
     if (!cash) throw new Error('La caja no existe');
     if (cash.status !== 'ABIERTA') throw new Error('La caja no está abierta');
     const signed = req.tipo === 'GASTO' || req.tipo === 'RETIRO' ? `-${req.monto}` : req.monto;
-    const balance = await tx.cashMovement.aggregate({ where: { cash_register_id: req.cashRegisterId }, _sum: { monto: true } });
+    const balance = await tx.cashMovement.aggregate({ where: { cash_register_id: cash.id }, _sum: { monto: true } });
     if (Number(balance._sum.monto ?? 0) + Number(signed) < 0) throw new Error('El movimiento dejaría saldo negativo');
-    await tx.cashMovement.create({ data: { cash_register_id: req.cashRegisterId, tipo: req.tipo, monto: signed } });
-    await tx.auditLog.create({ data: { user_id: req.userId, accion: `CASH_${req.tipo}`, detalle_json: safeDetail({ cashRegisterId: req.cashRegisterId, tipo: req.tipo, monto: signed, detalle: req.detalle }) } });
-    return mapCash(await tx.cashRegister.findUniqueOrThrow({ where: { id: req.cashRegisterId }, include: includeCash }), tx);
+    await tx.cashMovement.create({ data: { cash_register_id: cash.id, tipo: req.tipo, monto: signed } });
+    await tx.auditLog.create({ data: { user_id: req.userId, accion: `CASH_${req.tipo}`, detalle_json: safeDetail({ cashRegisterId: cash.id, tipo: req.tipo, monto: signed, detalle: req.detalle }) } });
+    return mapCash(await tx.cashRegister.findUniqueOrThrow({ where: { id: cash.id }, include: includeCash }), tx);
   })));
   ipcMain.handle('cash:getBalance', (_e, cashRegisterId: string) => wrap(async () => {
     const prisma = getPrisma();
