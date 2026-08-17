@@ -8,12 +8,11 @@ import { registerConfigIpc } from './ipc/config.js';
 import { registerInventoryIpc } from './ipc/inventory.js';
 import { registerOrdersIpc } from './ipc/orders.js';
 import { registerProductsIpc } from './ipc/products.js';
-import { hasDbConfig } from './services/config.js';
-import { runMigrations } from './data/prisma.js';
+import { getStartupState } from './data/prisma.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-function createWindow() {
+async function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -26,13 +25,14 @@ function createWindow() {
   });
 
   if (process.env.VITE_DEV_SERVER_URL) {
-    void win.loadURL(process.env.VITE_DEV_SERVER_URL);
+    await win.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    void win.loadFile(join(__dirname, '../../dist-renderer/index.html'));
+    await win.loadFile(join(__dirname, '../../dist-renderer/index.html'));
   }
+  return win;
 }
 
-app.whenReady().then(() => {
+async function bootstrap() {
   registerConfigIpc();
   registerAuthIpc();
   registerOrdersIpc();
@@ -40,11 +40,17 @@ app.whenReady().then(() => {
   registerCashIpc();
   registerProductsIpc();
 
-  if (hasDbConfig()) {
-    void runMigrations();
-  }
+  await createWindow();
+  const state = await getStartupState();
+  BrowserWindow.getAllWindows().forEach((window) => window.webContents.send('app:startupState', state));
+}
 
-  createWindow();
+app.whenReady().then(() => {
+  bootstrap().catch((error: unknown) => {
+    console.error('Error controlado durante el arranque:', error instanceof Error ? error.message : String(error));
+  });
+}).catch((error: unknown) => {
+  console.error('Electron no pudo inicializar app.whenReady():', error instanceof Error ? error.message : String(error));
 });
 
 app.on('window-all-closed', () => {
@@ -55,6 +61,8 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
+    createWindow().catch((error: unknown) => {
+      console.error('No se pudo crear la ventana:', error instanceof Error ? error.message : String(error));
+    });
   }
 });

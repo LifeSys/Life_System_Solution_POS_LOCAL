@@ -5,6 +5,10 @@ const wrap = async <T>(fn: () => Promise<T>) => { try { return { ok: true as con
 export function registerInventoryIpc() {
   ipcMain.handle('inventory:get', () => wrap(() => getPrisma().inventory.findMany({ include: { variant: { include: { product: true } } } })));
   ipcMain.handle('inventory:adjust', (_e, req: InventoryAdjustRequest) => wrap(() => getPrisma().$transaction(async (tx) => {
+    const variant = await tx.productVariant.findUnique({ where: { id: req.variantId } });
+    if (!variant) throw new Error('La variante no existe');
+    const current = await tx.inventory.findUnique({ where: { variant_id: req.variantId } });
+    if ((current?.current_stock ?? 0) + req.delta < 0) throw new Error('El ajuste dejaría stock negativo');
     const inventory = await tx.inventory.upsert({ where: { variant_id: req.variantId }, update: { current_stock: { increment: req.delta } }, create: { variant_id: req.variantId, current_stock: req.delta } });
     await tx.auditLog.create({ data: { user_id: req.userId, accion: 'INVENTORY_ADJUSTED', detalle_json: req } });
     return inventory;
