@@ -5,7 +5,10 @@ import type { CreateOrderRequest, UpdateOrderStatusRequest } from '../../shared/
 const wrap = async <T>(fn: () => Promise<T>) => { try { return { ok: true as const, data: await fn() }; } catch (e) { return { ok: false as const, error: e instanceof Error ? e.message : 'Unknown error' }; } };
 export function registerOrdersIpc() {
   ipcMain.handle('orders:create', (_e, req: CreateOrderRequest) => wrap(async () => getPrisma().$transaction(async (tx) => {
+    if (req.items.length === 0) throw new Error('El pedido debe tener al menos un item');
     const variants = await tx.productVariant.findMany({ where: { id: { in: req.items.map((i) => i.variantId) } } });
+    if (variants.length !== new Set(req.items.map((i) => i.variantId)).size) throw new Error('Una o más variantes del pedido no existen');
+    if (req.items.some((item) => item.cantidad <= 0)) throw new Error('Las cantidades del pedido deben ser mayores a cero');
     return tx.order.create({ data: { mesa: req.mesa, user_id: req.userId, items: { create: req.items.map((item) => ({ variant_id: item.variantId, cantidad: item.cantidad, precio_unitario: variants.find((v) => v.id === item.variantId)?.precio ?? new Prisma.Decimal(0) })) } }, include: { items: true } });
   })));
   ipcMain.handle('orders:updateStatus', (_e, req: UpdateOrderStatusRequest) => wrap(async () => getPrisma().$transaction(async (tx) => {
@@ -14,7 +17,12 @@ export function registerOrdersIpc() {
     if (!req.cashRegisterId) throw new Error('Caja requerida para procesar pago');
     const cash = await tx.cashRegister.findUniqueOrThrow({ where: { id: req.cashRegisterId } });
     if (cash.status !== 'ABIERTA') throw new Error('La caja no está abierta');
-    for (const item of order.items) await tx.inventory.update({ where: { variant_id: item.variant_id }, data: { current_stock: { decrement: item.cantidad } } });
+    for (const item of order.items) {
+      const inventory = await tx.inventory.findUnique({ where: { variant_id: item.variant_id } });
+      if (!inventory) throw new Error(`No existe inventario para la variante ${item.variant_id}`);
+      if (inventory.current_stock < item.cantidad) throw new Error(`Stock insuficiente para la variante ${item.variant_id}`);
+      await tx.inventory.update({ where: { variant_id: item.variant_id }, data: { current_stock: { decrement: item.cantidad } } });
+    }
     const total = order.items.reduce((sum, item) => sum.plus(item.precio_unitario.mul(item.cantidad)), new Prisma.Decimal(0));
     await tx.cashMovement.create({ data: { cash_register_id: req.cashRegisterId, tipo: 'VENTA', monto: total } });
     await tx.auditLog.create({ data: { user_id: req.userId, accion: 'ORDER_PAID', detalle_json: { orderId: req.orderId, total: total.toString() } } });

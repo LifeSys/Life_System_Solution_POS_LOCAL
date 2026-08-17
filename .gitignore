@@ -1,1 +1,14 @@
-node_modules
+node_modules/
+dist-electron/
+dist-renderer/
+dist/
+release/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+.env.*
+userData/
+.DS_Store
+*.local

@@ -13,11 +13,12 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit"
   },
   "dependencies": {
-    "@prisma/client": "^6.19.3",
-    "bcryptjs": "latest",
+    "@prisma/client": "6.19.3",
+    "bcryptjs": "^3.0.3",
     "electron-is-dev": "latest",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "prisma": "6.19.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
@@ -31,7 +32,6 @@
     "electron": "latest",
     "electron-builder": "latest",
     "postcss": "latest",
-    "prisma": "^6.19.3",
     "tailwindcss": "latest",
     "typescript": "latest",
     "vite": "latest",

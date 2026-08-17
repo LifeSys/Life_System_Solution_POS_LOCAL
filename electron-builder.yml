@@ -1,10 +1,17 @@
 appId: com.lifesystemsolution.pos
 productName: Life System Solution POS
+asarUnpack:
+  - node_modules/prisma/**
+  - node_modules/@prisma/**
+  - node_modules/.prisma/**
 files:
   - dist-renderer/**
   - dist-electron/**
   - prisma/**
   - package.json
+  - node_modules/@prisma/client/**
+  - node_modules/.prisma/**
+  - node_modules/prisma/**
 extraResources:
   - from: prisma
     to: prisma
