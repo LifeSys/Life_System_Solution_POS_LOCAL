@@ -1,11 +1,23 @@
 import { ipcMain } from 'electron';
-import { hasDbConfig, saveDbConfig } from '../services/config.js';
-import { getStartupState, prepareDatabase, resetPrisma } from '../data/prisma.js';
+import { hasDbConfig, readDbConfig, saveDbConfig } from '../services/config.js';
+import { checkDatabaseHealth, getStartupState, prepareDatabase, resetPrisma } from '../data/prisma.js';
 import type { DbConfig } from '../../shared/ipc.js';
-const wrap = async <T>(fn: () => Promise<T> | T) => { try { return { ok: true as const, data: await fn() }; } catch (e) { return { ok: false as const, error: e instanceof Error ? e.message : 'Unknown error' }; } };
+import { wrap } from './helpers.js';
+
 export function registerConfigIpc() {
   ipcMain.handle('config:exists', () => wrap(() => hasDbConfig()));
   ipcMain.handle('config:startupState', () => wrap(() => getStartupState()));
+  ipcMain.handle('config:getPublic', () => wrap(() => {
+    const config = readDbConfig();
+    if (!config) return null;
+    return { host: config.host, port: config.port, user: config.user, database: config.database, hasPassword: Boolean(config.password) };
+  }));
+  ipcMain.handle('config:test', () => wrap(async () => {
+    const config = readDbConfig();
+    if (!config) return { connected: false, message: 'PostgreSQL no configurado.' };
+    const health = await checkDatabaseHealth(config);
+    return { connected: health.ok, message: health.message };
+  }));
   ipcMain.handle('config:save', (_e, config: DbConfig) => wrap(async () => {
     saveDbConfig(config);
     resetPrisma();

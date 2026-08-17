@@ -2,12 +2,15 @@ import { app, BrowserWindow } from 'electron';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { registerAuditIpc } from './ipc/audit.js';
 import { registerAuthIpc } from './ipc/auth.js';
+import { registerDashboardIpc } from './ipc/dashboard.js';
 import { registerCashIpc } from './ipc/cash.js';
 import { registerConfigIpc } from './ipc/config.js';
 import { registerInventoryIpc } from './ipc/inventory.js';
 import { registerOrdersIpc } from './ipc/orders.js';
 import { registerProductsIpc } from './ipc/products.js';
+import { registerUsersIpc } from './ipc/users.js';
 import { getStartupState } from './data/prisma.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -35,6 +38,9 @@ async function createWindow() {
 async function bootstrap() {
   registerConfigIpc();
   registerAuthIpc();
+  registerDashboardIpc();
+  registerUsersIpc();
+  registerAuditIpc();
   registerOrdersIpc();
   registerInventoryIpc();
   registerCashIpc();

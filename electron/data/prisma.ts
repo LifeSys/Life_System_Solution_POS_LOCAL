@@ -124,13 +124,13 @@ function getSchemaPath() {
 }
 
 function getPrismaCommand() {
-  if (!app.isPackaged) {
-    const bin = join(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'prisma.cmd' : 'prisma');
-    if (!existsSync(bin)) throw new Error(`No se encontró Prisma CLI local en ${bin}. Ejecuta npm install.`);
-    return { command: bin, args: [] as string[], usesElectronAsNode: false };
+  const cli = app.isPackaged
+    ? join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'prisma', 'build', 'index.js')
+    : join(process.cwd(), 'node_modules', 'prisma', 'build', 'index.js');
+  if (!existsSync(cli)) {
+    const location = app.isPackaged ? 'empaquetado' : 'local';
+    throw new Error(`No se encontró Prisma CLI ${location} en ${cli}. Ejecuta npm install.`);
   }
-  const cli = join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', 'prisma', 'build', 'index.js');
-  if (!existsSync(cli)) throw new Error(`No se encontró Prisma CLI empaquetado en ${cli}.`);
   return { command: process.execPath, args: [cli], usesElectronAsNode: true };
 }
 

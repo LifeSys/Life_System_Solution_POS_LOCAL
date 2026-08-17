@@ -2,13 +2,36 @@ import { ipcMain } from 'electron';
 import bcrypt from 'bcryptjs';
 import { getPrisma } from '../data/prisma.js';
 import type { CreateAdminRequest, LoginRequest } from '../../shared/ipc.js';
-const wrap = async <T>(fn: () => Promise<T>) => { try { return { ok: true as const, data: await fn() }; } catch (e) { return { ok: false as const, error: e instanceof Error ? e.message : 'Unknown error' }; } };
+import { safeDetail, wrap } from './helpers.js';
+
+const AUTH_DEBUG_ENABLED = process.env.LSS_AUTH_DEBUG === '1';
+
 export function registerAuthIpc() {
   ipcMain.handle('auth:login', (_e, req: LoginRequest) => wrap(async () => {
-    const users = await getPrisma().user.findMany({ where: { activo: true } });
-    const user = users.find((u) => bcrypt.compareSync(req.pin, u.pin_hash));
-    if (!user) throw new Error('PIN inválido');
-    return { id: user.id, nombre: user.nombre, rol: user.rol };
+    authDebug('auth:login received', { pinLength: req.pin?.length ?? 0 });
+    if (!/^\d{4,12}$/.test(req.pin)) throw new Error('PIN inválido');
+
+    const users = await getPrisma().user.findMany({
+      where: { activo: true },
+      select: { id: true, nombre: true, rol: true, activo: true, pin_hash: true },
+    });
+    authDebug('active users loaded', {
+      count: users.length,
+      roles: [...new Set(users.map((user) => user.rol))],
+      allActive: users.every((user) => user.activo),
+      usersWithHash: users.filter((user) => Boolean(user.pin_hash)).length,
+    });
+
+    for (const user of users) {
+      const matches = await bcrypt.compare(req.pin, user.pin_hash);
+      authDebug('bcrypt comparison completed', { userId: user.id, role: user.rol, matches });
+      if (matches) {
+        await getPrisma().auditLog.create({ data: { user_id: user.id, accion: 'LOGIN_SUCCESS', detalle_json: safeDetail({ userId: user.id, rol: user.rol }) } });
+        return { id: user.id, nombre: user.nombre, rol: user.rol };
+      }
+    }
+
+    throw new Error('PIN inválido');
   }));
   ipcMain.handle('auth:createInitialAdmin', (_e, req: CreateAdminRequest) => wrap(async () => {
     if (!req.nombre.trim()) throw new Error('El nombre del ADMIN es obligatorio');
@@ -19,5 +42,14 @@ export function registerAuthIpc() {
     const user = await prisma.user.create({ data: { nombre: req.nombre.trim(), pin_hash: bcrypt.hashSync(req.pin, 10), rol: 'ADMIN', activo: true } });
     return { id: user.id, nombre: user.nombre, rol: user.rol };
   }));
-  ipcMain.handle('auth:logout', () => ({ ok: true, data: true }));
+  ipcMain.handle('auth:logout', (_e, userId?: string) => wrap(async () => {
+    if (userId) {
+      await getPrisma().auditLog.create({ data: { user_id: userId, accion: 'LOGOUT', detalle_json: safeDetail({ userId }) } });
+    }
+    return true;
+  }));
+}
+
+function authDebug(message: string, detail?: Record<string, unknown>) {
+  if (AUTH_DEBUG_ENABLED) console.debug(`[auth] ${message}`, detail ?? {});
 }
