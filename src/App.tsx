@@ -1,5 +1,9 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { api, missingPreloadApiMessage } from './lib/ipc-client';
+import { ActionButton } from './components/ActionButton';
+import { Cobro } from './pages/caja/Cobro';
+import { KDS } from './pages/cocina/KDS';
+import { Mesas } from './pages/mesero/Mesas';
 import type { AuditLogItem, CashRegisterSummary, DashboardSummary, InventoryItem, OrderListItem, OrderStatus, PaymentMethod, ProductListItem, RestaurantTableItem, StartupState, UserRole, UserSession, UserSummary } from '../shared/ipc';
 
 type ModuleKey = 'mesas' | 'cocina' | 'caja' | 'admin' | 'inventario' | 'reportes' | 'comprobantes';
@@ -81,12 +85,13 @@ function AuthenticatedApp({ user, onLogout }: { user: UserSession; onLogout: () 
   const [notice, setNotice] = useState<Notice>(null);
   useEffect(() => { void checkDb(setDb); }, []);
   async function logout() { const result = await api.auth.logout(user.id); if (!result.ok) setNotice({ kind: 'error', text: result.error }); else onLogout(); }
-  return <div className="min-h-screen bg-slate-100 text-slate-900"><header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-3 shadow-sm"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-600 font-bold text-white">LS</div><div><h1 className="text-lg font-bold">{roleTitle(user.rol)}</h1><p className="text-xs text-slate-500">Life System POS · único local operativo</p></div></div><nav className="flex flex-wrap gap-2">{modules.map((m) => <button key={m} onClick={() => setActive(m)} className={`rounded-lg px-3 py-2 text-sm font-semibold ${active === m ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>{moduleLabel(m)}</button>)}</nav><div className="flex items-center gap-2 text-sm"><span>{user.nombre}</span><span className="rounded-full bg-slate-100 px-2 py-1">{user.rol}</span><button onClick={logout} className="btn-danger">Salir</button></div></header><main className="p-4 lg:p-6">{notice && <NoticeBox notice={notice} onClose={() => setNotice(null)} />}{renderModule(active, user, setNotice, db, setDb)}</main></div>;
+  const operational = user.rol !== 'ADMIN';
+  return <div className="min-h-screen bg-slate-100 text-slate-900"><header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-3 shadow-sm"><div className="flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-600 font-black text-white">LS</div><div><h1 className="text-xl font-black">{roleTitle(user.rol)}</h1><p className="text-xs font-bold text-slate-500">Life System POS · único local operativo</p></div></div>{!operational && <nav className="flex flex-wrap gap-2">{modules.map((m) => <ActionButton key={m} size="md" onClick={() => setActive(m)} variant={active === m ? 'primary' : 'ghost'}>{moduleLabel(m)}</ActionButton>)}</nav>}<div className="flex items-center gap-2 text-sm"><span className="font-bold">{user.nombre}</span><span className="rounded-full bg-slate-100 px-3 py-2 font-black">{user.rol}</span><ActionButton size="md" variant="danger" onClick={logout}>Salir</ActionButton></div></header><main className="p-4 lg:p-6">{notice && <NoticeBox notice={notice} onClose={() => setNotice(null)} />}{renderModule(active, user, setNotice, db, setDb)}</main></div>;
 }
 function renderModule(active: ModuleKey, user: UserSession, setNotice: (n: Notice) => void, db: { connected: boolean; message: string }, setDb: (d: { connected: boolean; message: string }) => void) {
-  if (active === 'mesas') return <Sales user={user} setNotice={setNotice} />;
-  if (active === 'cocina') return <Orders user={user} setNotice={setNotice} />;
-  if (active === 'caja') return <Cash user={user} setNotice={setNotice} />;
+  if (active === 'mesas') return <Mesas user={user} setNotice={setNotice} />;
+  if (active === 'cocina') return <KDS user={user} setNotice={setNotice} />;
+  if (active === 'caja') return <Cobro user={user} setNotice={setNotice} />;
   if (active === 'admin') return <Admin user={user} setNotice={setNotice} />;
   if (active === 'inventario') return <Inventory user={user} setNotice={setNotice} />;
   if (active === 'reportes') return <><Dashboard user={user} /><Audit user={user} /></>;
@@ -94,7 +99,7 @@ function renderModule(active: ModuleKey, user: UserSession, setNotice: (n: Notic
   return <Settings db={db} setDb={setDb} />;
 }
 function roleTitle(role: UserRole) { return role === 'ADMIN' ? 'Administración' : role === 'CAJERO' ? 'Cajera' : role === 'MESERO' ? 'Mesero' : 'Cocina'; }
-function allowedModules(role: UserRole): ModuleKey[] { if (role === 'ADMIN') return ['mesas','cocina','caja','admin','inventario','reportes','comprobantes']; if (role === 'CAJERO') return ['mesas','cocina','caja']; if (role === 'MESERO') return ['mesas']; return ['cocina']; }
+function allowedModules(role: UserRole): ModuleKey[] { if (role === 'ADMIN') return ['admin','mesas','cocina','caja','inventario','reportes','comprobantes']; if (role === 'CAJERO') return ['caja']; if (role === 'MESERO') return ['mesas']; return ['cocina']; }
 function moduleLabel(m: ModuleKey) { return ({ mesas: 'Mesas', cocina: 'Cocina', caja: 'Caja', admin: 'Admin', inventario: 'Inventario', reportes: 'Reportes', comprobantes: 'Comprobantes' } as Record<ModuleKey, string>)[m]; }
 async function checkDb(setDb: (d: { connected: boolean; message: string }) => void) { const r = await api.config.test(); setDb(r.ok ? r.data : { connected: false, message: r.error }); }
 function NoticeBox({ notice, onClose }: { notice: NonNullable<Notice>; onClose: () => void }) { return <div className={`mb-4 rounded-lg p-3 ${notice.kind === 'error' ? 'bg-red-950 text-red-100' : notice.kind === 'ok' ? 'bg-emerald-950 text-emerald-100' : 'bg-blue-950 text-blue-100'}`}><button onClick={onClose} className="float-right">×</button>{notice.text}</div>; }

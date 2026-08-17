@@ -82,3 +82,20 @@ body {
 .table-free { border-color: #22c55e; background: linear-gradient(145deg, #ffffff, #dcfce7); }
 .table-busy { border-color: #ef4444; background: linear-gradient(145deg, #ffffff, #fee2e2); }
 .table-reserved { border-color: #f59e0b; background: linear-gradient(145deg, #ffffff, #fef3c7); }
+.pos-table-card {
+  min-height: 220px;
+  border-radius: 1.75rem;
+  border: 3px solid rgb(226 232 240);
+  background: white;
+  color: #0f172a;
+  padding: 1.5rem;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.14);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.pos-table-card:hover { transform: translateY(-3px); box-shadow: 0 24px 52px rgba(15, 23, 42, 0.2); }
+.pos-table-free { border-color: #10b981; background: linear-gradient(145deg, #fff, #dcfce7); }
+.pos-table-busy { border-color: #f59e0b; background: linear-gradient(145deg, #fff, #fef3c7); }
+.pos-table-reserved { border-color: #64748b; background: linear-gradient(145deg, #fff, #f1f5f9); }
