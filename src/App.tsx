@@ -1,13 +1,25 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { api } from './lib/ipc-client';
+import { api, missingPreloadApiMessage } from './lib/ipc-client';
 
 export default function App() {
+  if (!window.api) {
+    return <PreloadDiagnostic />;
+  }
+
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [message, setMessage] = useState('');
   useEffect(() => { void api.config.exists().then((r) => setConfigured(r.ok && r.data)); }, []);
   if (configured === null) return <main className="p-8">Cargando...</main>;
   if (!configured) return <ConfigScreen onDone={() => setConfigured(true)} setMessage={setMessage} message={message} />;
   return <LoginScreen message={message} setMessage={setMessage} />;
+}
+
+function PreloadDiagnostic() {
+  return <main className="mx-auto mt-16 max-w-2xl rounded-2xl bg-amber-950 p-8 shadow-xl">
+    <h1 className="text-2xl font-bold text-amber-100">API de Electron no disponible</h1>
+    <p className="mt-4 text-amber-100">{missingPreloadApiMessage}</p>
+    <p className="mt-3 text-amber-200">Abre la aplicación con <code className="rounded bg-amber-900 px-2 py-1">npm run dev</code>. Si abriste <code className="rounded bg-amber-900 px-2 py-1">http://localhost:5173/</code> directamente en un navegador, IPC no está disponible por diseño.</p>
+  </main>;
 }
 
 function ConfigScreen({ onDone, message, setMessage }: { onDone: () => void; message: string; setMessage: (m: string) => void }) {

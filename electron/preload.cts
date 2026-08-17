@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { Api } from '../shared/ipc.js';
 
-const invoke = <T>(channel: string, payload?: unknown) => ipcRenderer.invoke(channel, payload) as Promise<T>;
+const invoke = <T,>(channel: string, payload?: unknown) => ipcRenderer.invoke(channel, payload) as Promise<T>;
 const api: Api = {
   config: { exists: () => invoke('config:exists'), save: (config) => invoke('config:save', config) },
   auth: { login: (request) => invoke('auth:login', request), logout: () => invoke('auth:logout') },
