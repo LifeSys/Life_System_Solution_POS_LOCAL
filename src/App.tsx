@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { api, missingPreloadApiMessage } from './lib/ipc-client';
-import type { StartupState } from '../shared/ipc';
+import type { StartupState, UserSession } from '../shared/ipc';
 
 export default function App() {
   if (!window.api) {
@@ -9,6 +9,7 @@ export default function App() {
 
   const [startup, setStartup] = useState<StartupState | null>(null);
   const [message, setMessage] = useState('');
+  const [user, setUser] = useState<UserSession | null>(null);
   useEffect(() => {
     api.config.startupState().then((r) => {
       if (r.ok) setStartup(r.data);
@@ -25,7 +26,8 @@ export default function App() {
   if (!startup.configured) return <ConfigScreen onDone={setStartup} setMessage={setMessage} message={message} />;
   if (!startup.databaseReady) return <DatabaseErrorScreen startup={startup} onRetry={setStartup} message={message} setMessage={setMessage} />;
   if (startup.needsAdmin) return <InitialAdminScreen onDone={() => setStartup({ ...startup, needsAdmin: false })} setMessage={setMessage} message={message} />;
-  return <LoginScreen message={message} setMessage={setMessage} />;
+  if (user) return <AuthenticatedScreen user={user} onLogout={() => setUser(null)} setMessage={setMessage} />;
+  return <LoginScreen onLogin={setUser} message={message} setMessage={setMessage} />;
 }
 
 function PreloadDiagnostic() {
@@ -91,12 +93,31 @@ function InitialAdminScreen({ onDone, message, setMessage }: { onDone: () => voi
   </main>;
 }
 
-function LoginScreen({ message, setMessage }: { message: string; setMessage: (m: string) => void }) {
+function LoginScreen({ onLogin, message, setMessage }: { onLogin: (user: UserSession) => void; message: string; setMessage: (m: string) => void }) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const pin = String(new FormData(event.currentTarget).get('pin'));
-    const result = await api.auth.login({ pin });
-    setMessage(result.ok ? `Bienvenido, ${result.data.nombre} (${result.data.rol})` : result.error);
+    setIsSubmitting(true);
+    setMessage('');
+    const form = event.currentTarget;
+    const pin = String(new FormData(form).get('pin'));
+    authDebug('login submit', { pinLength: pin.length });
+    try {
+      const result = await api.auth.login({ pin });
+      authDebug('login response', { ok: result.ok });
+      if (result.ok) {
+        form.reset();
+        onLogin(result.data);
+      } else {
+        setMessage(result.error);
+      }
+    } catch (error) {
+      authDebug('login invoke failed', { error: error instanceof Error ? error.message : String(error) });
+      setMessage(error instanceof Error ? error.message : 'No se pudo iniciar sesión.');
+    } finally {
+      setIsSubmitting(false);
+    }
   }
   return <main className="flex min-h-screen items-center justify-center p-8">
     <section className="w-full max-w-md rounded-2xl bg-slate-900 p-8 shadow-xl">
@@ -104,9 +125,35 @@ function LoginScreen({ message, setMessage }: { message: string; setMessage: (m:
       <p className="mt-2 text-slate-300">Login por PIN usando IPC seguro.</p>
       <form onSubmit={submit} className="mt-6 grid gap-4">
         <input name="pin" type="password" className="rounded bg-slate-800 p-3 text-center text-2xl tracking-widest" placeholder="PIN" />
-        <button className="rounded bg-blue-500 p-3 font-semibold">Ingresar</button>
+        <button disabled={isSubmitting} className="rounded bg-blue-500 p-3 font-semibold disabled:cursor-not-allowed disabled:opacity-60">{isSubmitting ? 'Ingresando...' : 'Ingresar'}</button>
       </form>
       {message && <p className="mt-4 rounded bg-slate-800 p-3">{message}</p>}
     </section>
   </main>;
+}
+
+function AuthenticatedScreen({ user, onLogout, setMessage }: { user: UserSession; onLogout: () => void; setMessage: (m: string) => void }) {
+  async function logout() {
+    const result = await api.auth.logout();
+    if (!result.ok) {
+      setMessage(result.error);
+      return;
+    }
+    setMessage('');
+    onLogout();
+  }
+
+  return <main className="flex min-h-screen items-center justify-center p-8">
+    <section className="w-full max-w-md rounded-2xl bg-slate-900 p-8 shadow-xl">
+      <h1 className="text-3xl font-bold">Life System POS</h1>
+      <p className="mt-4 rounded bg-emerald-950 p-3 text-emerald-100">Bienvenido, {user.nombre} ({user.rol})</p>
+      <button onClick={logout} className="mt-6 rounded bg-slate-700 p-3 font-semibold">Cerrar sesión</button>
+    </section>
+  </main>;
+}
+
+function authDebug(message: string, detail?: Record<string, unknown>) {
+  if (globalThis.localStorage?.getItem('lss:auth-debug') === '1') {
+    console.debug(`[auth] ${message}`, detail ?? {});
+  }
 }
