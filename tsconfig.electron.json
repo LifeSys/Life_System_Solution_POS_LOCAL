@@ -1,8 +1,9 @@
-{
+﻿{
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "rootDir": ".",
     "outDir": "dist-electron",
     "noEmit": false,
     "sourceMap": true,

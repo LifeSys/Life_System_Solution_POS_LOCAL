@@ -18,8 +18,13 @@ export function registerCashIpc() {
     if (cash.status !== 'ABIERTA') throw new Error('La caja no está abierta');
     const signed = req.tipo === 'GASTO' || req.tipo === 'RETIRO' ? `-${req.monto}` : req.monto;
     const movement = await tx.cashMovement.create({ data: { cash_register_id: req.cashRegisterId, tipo: req.tipo, monto: signed } });
-    await tx.auditLog.create({ data: { user_id: req.userId, accion: `CASH_${req.tipo}`, detalle_json: { ...req, monto: signed } } });
-    return movement;
+    await tx.auditLog.create({
+      data: {
+        user_id: req.userId,
+        accion: `CASH_${req.tipo}`,
+        detalle_json: JSON.parse(JSON.stringify({ ...req, monto: signed })),
+      },
+    }); return movement;
   })));
   ipcMain.handle('cash:getBalance', (_e, cashRegisterId: string) => wrap(async () => {
     const result = await getPrisma().cashMovement.aggregate({ where: { cash_register_id: cashRegisterId }, _sum: { monto: true } });
