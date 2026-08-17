@@ -4,12 +4,12 @@ import type { InventoryAdjustRequest } from '../../shared/ipc.js';
 import { requireRole, safeDetail, toMoney, wrap } from './helpers.js';
 
 const stockState = (stock: number) => stock <= 0 ? 'sin_stock' : stock <= 5 ? 'stock_bajo' : 'normal';
-const mapInventory = (inventory: any) => ({ variantId: inventory.variant_id, productId: inventory.variant.product.id, sku: inventory.variant_id.slice(-8).toUpperCase(), producto: inventory.variant.product.nombre, variante: inventory.variant.nombre, precio: toMoney(inventory.variant.precio), stock: inventory.current_stock, estado: stockState(inventory.current_stock) });
+const mapInventory = (inventory: any) => ({ variantId: inventory.variant_id, productId: inventory.variant.product.id, sku: inventory.variant.inventory_code ?? inventory.variant_id.slice(-8).toUpperCase(), producto: inventory.variant.product.activo === false && inventory.variant.inventory_code?.startsWith('PZ-') ? inventory.variant.product.nombre : inventory.variant.product.nombre, variante: inventory.variant.nombre, precio: toMoney(inventory.variant.precio), stock: inventory.current_stock, estado: stockState(inventory.current_stock), productType: inventory.variant.product.tipo ?? 'CON_VARIANTES', inventoryCode: inventory.variant.inventory_code });
 
 export function registerInventoryIpc() {
   ipcMain.handle('inventory:get', () => wrap(async () => (await getPrisma().inventory.findMany({ include: { variant: { include: { product: true } } }, orderBy: { variant: { nombre: 'asc' } } })).map(mapInventory)));
   ipcMain.handle('inventory:adjust', (_e, req: InventoryAdjustRequest) => wrap(() => getPrisma().$transaction(async (tx) => {
-    await requireRole(tx, req.userId, ['ADMIN', 'CAJERO']);
+    await requireRole(tx, req.userId, ['ADMIN']);
     if (!Number.isInteger(req.delta) || req.delta === 0) throw new Error('El ajuste debe ser un número entero distinto de 0');
     const variant = await tx.productVariant.findUnique({ where: { id: req.variantId } });
     if (!variant) throw new Error('La variante no existe');
