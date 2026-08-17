@@ -4,6 +4,14 @@ import type { CashCloseRequest, CashMovementRequest, CashOpenRequest } from '../
 import { requireRole, safeDetail, toMoney, wrap } from './helpers.js';
 
 const includeCash = { openedBy: true, movements: { orderBy: { created_at: 'desc' as const } } };
+async function cashSales(cashId: string, tx: any, initial: any = 0) {
+  const movements = await tx.cashMovement.findMany({ where: { cash_register_id: cashId, tipo: 'VENTA' } });
+  const by = (method: string) => movements.filter((m: any) => m.payment_method === method).reduce((s: number, m: any) => s + Number(m.monto), 0);
+  const efectivo = by('EFECTIVO'), tarjeta = by('TARJETA'), yape = by('YAPE');
+  const total = efectivo + tarjeta + yape;
+  return { efectivo: toMoney(efectivo), tarjeta: toMoney(tarjeta), yape: toMoney(yape), total: toMoney(total), orders: movements.length, averageTicket: toMoney(movements.length ? total / movements.length : 0), expectedCash: toMoney(Number(initial) + efectivo) };
+}
+
 const mapCash = async (cash: any, tx: any = getPrisma()) => {
   const result = await tx.cashMovement.aggregate({ where: { cash_register_id: cash.id }, _sum: { monto: true } });
   return {
@@ -15,7 +23,11 @@ const mapCash = async (cash: any, tx: any = getPrisma()) => {
     openedAt: cash.opened_at.toISOString(),
     closedAt: cash.closed_at?.toISOString() ?? null,
     balance: toMoney(result._sum.monto ?? 0),
-    movements: cash.movements.map((m: any) => ({ id: m.id, tipo: m.tipo, monto: toMoney(m.monto), createdAt: m.created_at.toISOString() })),
+    countedCash: cash.counted_cash == null ? null : toMoney(cash.counted_cash),
+    expectedCash: cash.expected_cash == null ? null : toMoney(cash.expected_cash),
+    difference: cash.difference == null ? null : toMoney(cash.difference),
+    sales: await cashSales(cash.id, tx, cash.initial_amount),
+    movements: cash.movements.map((m: any) => ({ id: m.id, tipo: m.tipo, monto: toMoney(m.monto), createdAt: m.created_at.toISOString(), paymentMethod: m.payment_method, detalle: m.detalle_json })),
   };
 };
 
@@ -39,8 +51,11 @@ export function registerCashIpc() {
     const existing = await tx.cashRegister.findUnique({ where: { id: req.cashRegisterId }, include: includeCash });
     if (!existing) throw new Error('La caja no existe');
     if (existing.status === 'CERRADA') throw new Error('La caja ya está cerrada');
-    const cash = await tx.cashRegister.update({ where: { id: req.cashRegisterId }, data: { status: 'CERRADA', closed_at: new Date() }, include: includeCash });
-    await tx.auditLog.create({ data: { user_id: req.userId, accion: 'CASH_CLOSED', detalle_json: safeDetail({ cashRegisterId: cash.id }) } });
+    const sales = await cashSales(existing.id, tx, existing.initial_amount);
+    const counted = req.countedCash ?? sales.expectedCash;
+    const diff = Number(counted) - Number(sales.expectedCash);
+    const cash = await tx.cashRegister.update({ where: { id: req.cashRegisterId }, data: { status: 'CERRADA', closed_at: new Date(), counted_cash: counted, expected_cash: sales.expectedCash, difference: diff.toFixed(2), closure_status: Math.abs(diff) < 0.01 ? 'CUADRADA' : 'DIFERENCIA' }, include: includeCash });
+    await tx.auditLog.create({ data: { user_id: req.userId, accion: 'CASH_CLOSED', detalle_json: safeDetail({ cashRegisterId: cash.id, sales, countedCash: counted, difference: diff.toFixed(2) }) } });
     return mapCash(cash, tx);
   })));
   ipcMain.handle('cash:registerMovement', (_e, req: CashMovementRequest) => wrap(() => getPrisma().$transaction(async (tx) => {
@@ -53,7 +68,7 @@ export function registerCashIpc() {
     const signed = req.tipo === 'GASTO' || req.tipo === 'RETIRO' ? `-${req.monto}` : req.monto;
     const balance = await tx.cashMovement.aggregate({ where: { cash_register_id: cash.id }, _sum: { monto: true } });
     if (Number(balance._sum.monto ?? 0) + Number(signed) < 0) throw new Error('El movimiento dejaría saldo negativo');
-    await tx.cashMovement.create({ data: { cash_register_id: cash.id, tipo: req.tipo, monto: signed } });
+    await tx.cashMovement.create({ data: { cash_register_id: cash.id, tipo: req.tipo, monto: signed, detalle_json: safeDetail(req.detalle ?? {}) } });
     await tx.auditLog.create({ data: { user_id: req.userId, accion: `CASH_${req.tipo}`, detalle_json: safeDetail({ cashRegisterId: cash.id, tipo: req.tipo, monto: signed, detalle: req.detalle }) } });
     return mapCash(await tx.cashRegister.findUniqueOrThrow({ where: { id: cash.id }, include: includeCash }), tx);
   })));
