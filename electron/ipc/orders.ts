@@ -4,28 +4,51 @@ import { getPrisma } from '../data/prisma.js';
 import type { CreateOrderRequest, PayOrderRequest, UpdateOrderStatusRequest, UserSession } from '../../shared/ipc.js';
 import { requireRole, safeDetail, toMoney, wrap } from './helpers.js';
 
-const includeOrder = { user: true, items: { include: { variant: { include: { product: true } } } } };
-const mapOrder = (order: any) => { const items = order.items.map((item: any) => ({ id: item.id, variantId: item.variant_id, producto: item.variant.product.nombre, variante: item.variant.nombre, cantidad: item.cantidad, precioUnitario: toMoney(item.precio_unitario), subtotal: toMoney(item.precio_unitario.mul(item.cantidad)) })); const total = items.reduce((s: number, i: any) => s + Number(i.subtotal), 0); const paidAudit = order.auditPayment?.[0]?.detalle_json as any; return { id: order.id, mesa: order.mesa, estado: order.estado, userId: order.user_id, userName: order.user?.nombre ?? 'Usuario', createdAt: order.created_at.toISOString(), total: total.toFixed(2), paymentMethod: paidAudit?.paymentMethod ?? null, note: (order.auditCreate?.[0]?.detalle_json as any)?.note ?? null, items }; };
+const openStatuses = ['PENDIENTE','EN_COCINA','EN_PREPARACION','LISTO','ENTREGADO'];
+const includeOrder = { user: true, table: true, items: { include: { variant: { include: { product: true } } } } };
+const mapOrder = (order: any) => { const items = order.items.map((item: any) => ({ id: item.id, variantId: item.variant_id, producto: item.variant.product.nombre, variante: item.variant.nombre, cantidad: item.cantidad, precioUnitario: toMoney(item.precio_unitario), subtotal: toMoney(item.precio_unitario.mul(item.cantidad)) })); const total = items.reduce((s: number, i: any) => s + Number(i.subtotal), 0); const paidAudit = order.auditPayment?.[0]?.detalle_json as any; return { id: order.id, mesa: order.table?.nombre ?? order.mesa, tableId: order.table_id ?? null, estado: order.estado, userId: order.user_id, userName: order.user?.nombre ?? 'Usuario', createdAt: order.created_at.toISOString(), total: total.toFixed(2), paymentMethod: paidAudit?.paymentMethod ?? null, note: (order.auditCreate?.[0]?.detalle_json as any)?.note ?? null, items }; };
 async function loadOrder(tx: any, orderId: string) { const order = await tx.order.findUnique({ where: { id: orderId }, include: includeOrder }); if (!order) throw new Error('El pedido no existe'); return order; }
 async function attachAudits(prisma: any, orders: any[]) { const logs = await prisma.auditLog.findMany({ where: { accion: { in: ['ORDER_PAID', 'ORDER_CREATED'] } }, orderBy: { created_at: 'desc' } }); return orders.map((o) => ({ ...o, auditPayment: logs.filter((l: any) => l.accion === 'ORDER_PAID' && (l.detalle_json as any)?.orderId === o.id).slice(0, 1), auditCreate: logs.filter((l: any) => l.accion === 'ORDER_CREATED' && (l.detalle_json as any)?.orderId === o.id).slice(0, 1) })); }
 
 export function registerOrdersIpc() {
   ipcMain.handle('orders:create', (_e, req: CreateOrderRequest) => wrap(() => getPrisma().$transaction(async (tx) => {
     await requireRole(tx, req.userId, ['ADMIN', 'CAJERO', 'MESERO']);
+    if (!req.tableId) throw new Error('Debe seleccionar una mesa del sistema');
+    const table = await tx.restaurantTable.findUnique({ where: { id: req.tableId } });
+    if (!table || !table.activa) throw new Error('La mesa seleccionada no existe o está inactiva');
+    const openOrder = await tx.order.findFirst({ where: { table_id: req.tableId, estado: { in: openStatuses as any } } });
+    if (openOrder) throw new Error('La mesa ya tiene un pedido abierto');
     if (!req.items?.length) throw new Error('El pedido debe tener al menos un item');
     if (req.items.some((i) => !i.variantId || !Number.isInteger(i.cantidad) || i.cantidad <= 0)) throw new Error('Las cantidades del pedido deben ser mayores a cero');
     const merged = [...req.items.reduce((m, i) => m.set(i.variantId, (m.get(i.variantId) ?? 0) + i.cantidad), new Map<string, number>())].map(([variantId, cantidad]) => ({ variantId, cantidad }));
     const variants = await tx.productVariant.findMany({ where: { id: { in: merged.map((i) => i.variantId) } }, include: { inventory: true, product: true } });
     if (variants.length !== merged.length) throw new Error('Una o más variantes del pedido no existen');
-    for (const item of merged) { const v = variants.find((x: any) => x.id === item.variantId); if ((v?.inventory?.current_stock ?? 0) < item.cantidad) throw new Error(`Stock insuficiente para ${v?.product?.nombre ?? ''} ${v?.nombre ?? item.variantId}`); }
-    const order = await tx.order.create({ data: { mesa: req.mesa?.trim() || null, user_id: req.userId, estado: 'PENDIENTE', items: { create: merged.map((i) => ({ variant_id: i.variantId, cantidad: i.cantidad, precio_unitario: variants.find((v: any) => v.id === i.variantId)?.precio ?? new Prisma.Decimal(0) })) } }, include: includeOrder });
-    for (const item of order.items) await tx.inventory.update({ where: { variant_id: item.variant_id }, data: { current_stock: { decrement: item.cantidad } } });
+    if (variants.some((v: any) => v.product.activo === false)) throw new Error('No se puede vender un producto inactivo');
+    const consumption: Array<{ variantId: string; cantidad: number; label: string }> = [];
+    for (const item of merged) {
+      const v = variants.find((x: any) => x.id === item.variantId);
+      if (v?.product.tipo === 'PIZZA') {
+        const code = ({ Personal: 'PZ-PER', Bipersonal: 'PZ-BIP', Familiar: 'PZ-FAM', Gigante: 'PZ-GIG', 'Super Gigante': 'PZ-SGI' } as Record<string,string>)[v.nombre];
+        if (!code) throw new Error('La pizza debe tener un tamaño válido');
+        const dough = await tx.productVariant.findFirst({ where: { inventory_code: code }, include: { inventory: true } });
+        if (!dough?.inventory) throw new Error(`No existe inventario global de masa ${code}`);
+        consumption.push({ variantId: dough.id, cantidad: item.cantidad, label: code });
+      } else {
+        if (!v?.inventory) throw new Error(`No existe inventario para ${v?.product?.nombre ?? ''} ${v?.nombre ?? item.variantId}`);
+        consumption.push({ variantId: v.id, cantidad: item.cantidad, label: `${v.product.nombre} ${v.nombre}` });
+      }
+    }
+    const mergedConsumption = [...consumption.reduce((m, i) => m.set(i.variantId, { ...i, cantidad: (m.get(i.variantId)?.cantidad ?? 0) + i.cantidad }), new Map<string, any>()).values()];
+    for (const c of mergedConsumption) { const inv = await tx.inventory.findUnique({ where: { variant_id: c.variantId } }); if ((inv?.current_stock ?? 0) < c.cantidad) throw new Error(`Stock insuficiente para ${c.label}`); }
+    const order = await tx.order.create({ data: { mesa: table.nombre, table_id: req.tableId, user_id: req.userId, estado: 'EN_PREPARACION', items: { create: merged.map((i) => ({ variant_id: i.variantId, cantidad: i.cantidad, precio_unitario: variants.find((v: any) => v.id === i.variantId)?.precio ?? new Prisma.Decimal(0) })) } }, include: includeOrder });
+    for (const item of mergedConsumption) await tx.inventory.update({ where: { variant_id: item.variantId }, data: { current_stock: { decrement: item.cantidad } } });
+    await tx.restaurantTable.update({ where: { id: req.tableId }, data: { estado: 'OCUPADA' } });
     await tx.auditLog.create({ data: { user_id: req.userId, accion: 'ORDER_CREATED', detalle_json: safeDetail({ orderId: order.id, mesa: req.mesa, note: req.note, items: merged, inventoryDeducted: true }) } });
     return mapOrder(order);
   })));
   ipcMain.handle('orders:pay', (_e, req: PayOrderRequest) => wrap(() => getPrisma().$transaction(async (tx) => {
     await requireRole(tx, req.userId, ['ADMIN', 'CAJERO']); const order = await loadOrder(tx, req.orderId);
-    if (!['PENDIENTE','EN_COCINA','EN_PREPARACION','LISTO','ENTREGADO'].includes(order.estado)) throw new Error(order.estado === 'PAGADO' ? 'El pedido ya está pagado' : 'No se puede cobrar este pedido');
+    if (!['ENTREGADO'].includes(order.estado)) throw new Error(order.estado === 'PAGADO' ? 'El pedido ya está pagado' : 'No se puede cobrar este pedido');
     const total = order.items.reduce((s: Prisma.Decimal, i: any) => s.plus(i.precio_unitario.mul(i.cantidad)), new Prisma.Decimal(0));
     const cash = await tx.cashRegister.findFirst({ where: { status: 'ABIERTA' }, orderBy: { opened_at: 'desc' } }); if (!cash) throw new Error('Debe abrir una caja antes de registrar una venta');
     const payments = req.payments?.length ? req.payments : [{ method: req.paymentMethod ?? 'EFECTIVO', amount: req.receivedAmount ?? total.toString() }];
@@ -33,14 +56,16 @@ export function registerOrdersIpc() {
     if (nonCash > Number(total)) throw new Error('Los pagos no efectivo no pueden exceder el total'); if (paid < Number(total)) throw new Error('Pago incompleto'); const cashApplied = Math.max(0, Number(total) - nonCash);
     for (const p of payments) if (p.method !== 'EFECTIVO') await tx.cashMovement.create({ data: { cash_register_id: cash.id, tipo: 'VENTA', monto: p.amount, payment_method: p.method } });
     if (cashApplied > 0) await tx.cashMovement.create({ data: { cash_register_id: cash.id, tipo: 'VENTA', monto: cashApplied.toFixed(2), payment_method: 'EFECTIVO', detalle_json: safeDetail({ recibido: cashAmount.toFixed(2), vuelto: Math.max(0, paid - Number(total)).toFixed(2) }) } });
+    for (const p of payments) await tx.payment.create({ data: { order_id: req.orderId, user_id: req.userId, method: p.method, amount: p.method === 'EFECTIVO' ? cashApplied.toFixed(2) : p.amount, received_amount: p.method === 'EFECTIVO' ? cashAmount.toFixed(2) : p.amount, change_amount: p.method === 'EFECTIVO' ? Math.max(0, paid - Number(total)).toFixed(2) : '0.00' } });
     const updated = await tx.order.update({ where: { id: req.orderId }, data: { estado: 'PAGADO' }, include: includeOrder });
+    if (updated.table_id) await tx.restaurantTable.update({ where: { id: updated.table_id }, data: { estado: 'DISPONIBLE' } });
     await tx.auditLog.create({ data: { user_id: req.userId, accion: 'ORDER_PAID', detalle_json: safeDetail({ orderId: req.orderId, cashRegisterId: cash.id, total: total.toString(), paymentMethod: payments.length > 1 ? 'MIXTO' : payments[0].method, payments, paid, change: Math.max(0, paid - Number(total)).toFixed(2) }) } });
     return mapOrder({ ...updated, auditPayment: [{ detalle_json: { paymentMethod: payments.length > 1 ? 'MIXTO' : payments[0].method } }] });
   })));
   ipcMain.handle('orders:updateStatus', (_e, req: UpdateOrderStatusRequest) => wrap(() => getPrisma().$transaction(async (tx) => {
     await requireRole(tx, req.userId, ['ADMIN', 'CAJERO', 'COCINA']); if (req.estado === 'PAGADO') throw new Error('Use el flujo de cobro para pagar pedidos'); const order = await loadOrder(tx, req.orderId);
     if (['PAGADO','CANCELADO'].includes(order.estado)) throw new Error('No se puede cambiar un pedido finalizado');
-    const valid: Record<string, string[]> = { ABIERTO: ['PENDIENTE','CANCELADO'], PENDIENTE: ['EN_COCINA','EN_PREPARACION','CANCELADO'], EN_COCINA: ['EN_PREPARACION','LISTO','CANCELADO'], EN_PREPARACION: ['LISTO','CANCELADO'], LISTO: ['ENTREGADO','CANCELADO'], ENTREGADO: ['CANCELADO'] };
+    const valid: Record<string, string[]> = { ABIERTO: ['PENDIENTE','CANCELADO'], PENDIENTE: ['EN_COCINA','EN_PREPARACION','CANCELADO'], EN_COCINA: ['EN_PREPARACION','LISTO','CANCELADO'], EN_PREPARACION: ['LISTO','CANCELADO'], LISTO: ['ENTREGADO','CANCELADO'], ENTREGADO: ['PAGADO','CANCELADO'] };
     if (!valid[order.estado]?.includes(req.estado)) throw new Error('Transición de estado inválida'); const updated = await tx.order.update({ where: { id: req.orderId }, data: { estado: req.estado }, include: includeOrder });
     await tx.auditLog.create({ data: { user_id: req.userId, accion: req.estado === 'CANCELADO' ? 'ORDER_CANCELLED' : 'ORDER_STATUS_CHANGED', detalle_json: safeDetail({ orderId: req.orderId, from: order.estado, to: req.estado }) } }); return mapOrder(updated);
   })));
