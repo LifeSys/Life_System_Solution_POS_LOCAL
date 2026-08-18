@@ -5,7 +5,7 @@ export type StartupState = { configured: boolean; databaseReady: boolean; needsA
 export type UserRole = 'ADMIN' | 'CAJERO' | 'MESERO' | 'COCINA';
 export type ProductType = 'PIZZA' | 'CON_VARIANTES' | 'SIN_VARIANTES';
 export type OrderStatus = 'ABIERTO' | 'PENDIENTE' | 'EN_COCINA' | 'EN_PREPARACION' | 'LISTO' | 'ENTREGADO' | 'PAGADO' | 'CANCELADO';
-export type CashMovementType = 'VENTA' | 'GASTO' | 'APERTURA' | 'RETIRO' | 'DEPOSITO' | 'CAJA_FUERTE_DEPOSITO' | 'CAJA_FUERTE_RETIRO' | 'TRANSFERENCIA_CAJA_FUERTE';
+export type CashMovementType = 'VENTA' | 'GASTO' | 'INGRESO' | 'APERTURA' | 'RETIRO' | 'DEPOSITO' | 'CAJA_FUERTE_DEPOSITO' | 'CAJA_FUERTE_RETIRO' | 'TRANSFERENCIA_CAJA_FUERTE';
 export type PaymentMethod = 'EFECTIVO' | 'TARJETA' | 'YAPE';
 export type TableStatus = 'DISPONIBLE' | 'OCUPADA' | 'RESERVADA';
 export type LoginRequest = { pin: string };
@@ -30,7 +30,8 @@ export type UpdateOrderStatusRequest = { orderId: string; estado: OrderStatus; u
 export type OrderListItem = { id: string; mesa?: string | null; tableId?: string | null; estado: OrderStatus; userId: string; userName: string; createdAt: string; total: string; paymentMethod?: PaymentMethod | 'MIXTO' | null; note?: string | null; items: Array<{ id: string; variantId: string; producto: string; variante: string; cantidad: number; precioUnitario: string; subtotal: string }> };
 export type CashOpenRequest = { userId: string; initialAmount: string };
 export type CashCloseRequest = { cashRegisterId: string; userId: string; countedCash?: string };
-export type CashMovementRequest = { cashRegisterId?: string; userId: string; tipo: CashMovementType; monto: string; detalle?: Record<string, unknown> };
+export type CashMovementRequest = { cashRegisterId?: string; userId: string; tipo: Extract<CashMovementType, 'GASTO' | 'INGRESO' | 'RETIRO' | 'DEPOSITO'>; monto: string; detalle?: Record<string, unknown> };
+export type CashRegisterCloseSummary = { cashRegisterId: string; initialAmount: string; sales: { efectivo: string; tarjeta: string; yape: string; mixto: string; total: string }; manual: { ingresos: string; gastos: string; retiros: string }; expectedCash: string; countedCash?: string | null; difference?: string | null; movements: Array<{ id: string; tipo: CashMovementType; monto: string; createdAt: string; paymentMethod?: PaymentMethod | null; detalle?: unknown }> };
 export type CashRegisterSummary = { id: string; openedBy: string; openedByName: string; initialAmount: string; status: 'ABIERTA' | 'CERRADA'; openedAt: string; closedAt?: string | null; countedCash?: string | null; expectedCash?: string | null; difference?: string | null; balance: string; sales: { efectivo: string; tarjeta: string; yape: string; total: string; orders: number; averageTicket: string; expectedCash: string }; movements: Array<{ id: string; tipo: CashMovementType; monto: string; createdAt: string; paymentMethod?: PaymentMethod | null; detalle?: unknown }> };
 export type DashboardSummary = { salesToday: string; ordersToday: number; productsCount: number; lowStockCount: number; cashStatus: 'ABIERTA' | 'CERRADA' | 'SIN_CAJA'; cashBalance: string; latestSales: Array<{ time: string; orderId: string; userName: string; total: string; paymentMethod?: PaymentMethod | 'MIXTO' | null }>; currentUser: UserSession; database: { connected: boolean; message: string } };
 export type AuditLogItem = { id: string; userName: string; accion: string; detalle: unknown; createdAt: string };
@@ -42,7 +43,7 @@ export type Api = {
   audit: { list(actorId: string): Promise<IpcResult<AuditLogItem[]>> };
   orders: { create(request: CreateOrderRequest): Promise<IpcResult<OrderListItem>>; pay(request: PayOrderRequest): Promise<IpcResult<OrderListItem>>; updateStatus(request: UpdateOrderStatusRequest): Promise<IpcResult<OrderListItem>>; list(user: UserSession): Promise<IpcResult<OrderListItem[]>>; getById(id: string): Promise<IpcResult<OrderListItem | null>> };
   inventory: { get(): Promise<IpcResult<InventoryItem[]>>; adjust(request: InventoryAdjustRequest): Promise<IpcResult<InventoryItem>> };
-  cash: { current(): Promise<IpcResult<CashRegisterSummary | null>>; list(): Promise<IpcResult<CashRegisterSummary[]>>; open(request: CashOpenRequest): Promise<IpcResult<CashRegisterSummary>>; close(request: CashCloseRequest): Promise<IpcResult<CashRegisterSummary>>; registerMovement(request: CashMovementRequest): Promise<IpcResult<CashRegisterSummary>>; getBalance(cashRegisterId: string): Promise<IpcResult<string>> };
+  cash: { current(): Promise<IpcResult<CashRegisterSummary | null>>; list(): Promise<IpcResult<CashRegisterSummary[]>>; open(request: CashOpenRequest): Promise<IpcResult<CashRegisterSummary>>; close(request: CashCloseRequest): Promise<IpcResult<CashRegisterSummary>>; registerMovement(request: CashMovementRequest): Promise<IpcResult<CashRegisterSummary>>; getSummary(cashRegisterId?: string): Promise<IpcResult<CashRegisterCloseSummary>>; getBalance(cashRegisterId: string): Promise<IpcResult<string>> };
   products: { list(includeInactive?: boolean): Promise<IpcResult<ProductListItem[]>>; create(request: ProductInput): Promise<IpcResult<ProductListItem>>; update(request: ProductUpdateRequest): Promise<IpcResult<ProductListItem>> };
   tables: { list(user: UserSession): Promise<IpcResult<RestaurantTableItem[]>>; create(request: TableInput): Promise<IpcResult<RestaurantTableItem>>; update(request: TableUpdateRequest): Promise<IpcResult<RestaurantTableItem>> };
 };
