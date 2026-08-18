@@ -16,7 +16,8 @@ const api: Api = {
   audit: { list: (actorId) => invoke('audit:list', actorId) },
   orders: { create: (request) => invoke('orders:create', request), pay: (request) => invoke('orders:pay', request), updateStatus: (request) => invoke('orders:updateStatus', request), list: (user) => invoke('orders:list', user), getById: (id) => invoke('orders:getById', id) },
   inventory: { get: () => invoke('inventory:get'), adjust: (request) => invoke('inventory:adjust', request) },
-  cash: { current: () => invoke('cash:current'), list: () => invoke('cash:list'), open: (request) => invoke('cash:open', request), close: (request) => invoke('cash:close', request), registerMovement: (request) => invoke('cash:registerMovement', request), getBalance: (id) => invoke('cash:getBalance', id) },
-  products: { list: () => invoke('products:list'), create: (request) => invoke('products:create', request), update: (request) => invoke('products:update', request) }
+  cash: { current: () => invoke('cash:current'), list: () => invoke('cash:list'), open: (request) => invoke('cash:open', request), close: (request) => invoke('cash:close', request), registerMovement: (request) => invoke('cash:registerMovement', request), getSummary: (id) => invoke('cash:getSummary', id), getBalance: (id) => invoke('cash:getBalance', id) },
+  products: { list: (includeInactive) => invoke('products:list', includeInactive), create: (request) => invoke('products:create', request), update: (request) => invoke('products:update', request) },
+  tables: { list: (user) => invoke('tables:list', user), create: (request) => invoke('tables:create', request), update: (request) => invoke('tables:update', request) }
 };
 contextBridge.exposeInMainWorld('api', api);

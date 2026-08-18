@@ -10,6 +10,7 @@ import { registerConfigIpc } from './ipc/config.js';
 import { registerInventoryIpc } from './ipc/inventory.js';
 import { registerOrdersIpc } from './ipc/orders.js';
 import { registerProductsIpc } from './ipc/products.js';
+import { registerTablesIpc } from './ipc/tables.js';
 import { registerUsersIpc } from './ipc/users.js';
 import { getStartupState } from './data/prisma.js';
 
@@ -45,6 +46,7 @@ async function bootstrap() {
   registerInventoryIpc();
   registerCashIpc();
   registerProductsIpc();
+  registerTablesIpc();
 
   await createWindow();
   const state = await getStartupState();

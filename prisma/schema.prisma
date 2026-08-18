@@ -47,9 +47,16 @@ enum CashClosureStatus {
   DIFERENCIA
 }
 
+enum TableStatus {
+  DISPONIBLE
+  OCUPADA
+  RESERVADA
+}
+
 enum CashMovementType {
   VENTA
   GASTO
+  INGRESO
   APERTURA
   RETIRO
   DEPOSITO
@@ -65,6 +72,7 @@ model User {
   rol           UserRole
   activo        Boolean        @default(true)
   orders        Order[]
+  auditCash      Payment[]
   openedCash    CashRegister[] @relation("OpenedBy")
   auditLogs     AuditLog[]
 
@@ -103,14 +111,29 @@ model Inventory {
   @@map("inventory")
 }
 
+model RestaurantTable {
+  id          String       @id @default(cuid())
+  nombre      String       @unique
+  capacidad   Int          @default(4)
+  estado      TableStatus  @default(DISPONIBLE)
+  activa      Boolean      @default(true)
+  created_at  DateTime     @default(now())
+  orders      Order[]
+
+  @@map("restaurant_tables")
+}
+
 model Order {
   id          String       @id @default(cuid())
   mesa        String?
+  table_id    String?
   estado      OrderStatus  @default(PENDIENTE)
   user_id     String
   created_at  DateTime     @default(now())
   user        User         @relation(fields: [user_id], references: [id])
+  table       RestaurantTable? @relation(fields: [table_id], references: [id])
   items       OrderItem[]
+  payments    Payment[]
 
   @@map("orders")
 }
@@ -125,6 +148,21 @@ model OrderItem {
   variant          ProductVariant @relation(fields: [variant_id], references: [id])
 
   @@map("order_items")
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  order_id          String
+  user_id           String
+  method            PaymentMethod
+  amount            Decimal       @db.Decimal(12, 2)
+  received_amount   Decimal?      @db.Decimal(12, 2)
+  change_amount     Decimal       @default(0) @db.Decimal(12, 2)
+  created_at        DateTime      @default(now())
+  order             Order         @relation(fields: [order_id], references: [id])
+  user              User          @relation(fields: [user_id], references: [id])
+
+  @@map("payments")
 }
 
 model CashRegister {

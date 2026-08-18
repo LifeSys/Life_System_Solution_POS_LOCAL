@@ -11,6 +11,7 @@ export const PIZZA_SIZES = [
   { nombre: 'Super Gigante', code: 'PZ-SGI' },
 ] as const;
 
+const doughStock = (product: any, variant: any) => product.tipo === 'PIZZA' ? (product.__doughBySize?.[variant.nombre] ?? 0) : (variant.inventory?.current_stock ?? 0);
 const mapProduct = (product: any) => ({
   id: product.id,
   codigo: product.id.slice(-8).toUpperCase(),
@@ -19,7 +20,7 @@ const mapProduct = (product: any) => ({
   categoria: product.categoria,
   tipo: product.tipo ?? inferType(product),
   activo: product.activo ?? true,
-  variants: product.variants.map((variant: any) => ({ id: variant.id, sku: variant.inventory_code ?? variant.id.slice(-8).toUpperCase(), nombre: variant.nombre, precio: toMoney(variant.precio), stock: variant.inventory?.current_stock ?? 0, inventoryCode: variant.inventory_code })),
+  variants: product.variants.map((variant: any) => ({ id: variant.id, sku: variant.inventory_code ?? variant.id.slice(-8).toUpperCase(), nombre: variant.nombre, precio: toMoney(variant.precio), stock: doughStock(product, variant), inventoryCode: variant.inventory_code })),
 });
 
 function inferType(product: any) {
@@ -49,7 +50,7 @@ function validate(req: ProductInput | ProductUpdateRequest) {
 function variantCreateData(v: ProductVariantInput, tipo?: string) {
   const pizza = tipo === 'PIZZA';
   const size = PIZZA_SIZES.find((s) => s.nombre === v.nombre || s.code === v.inventoryCode);
-  return { nombre: v.nombre.trim(), precio: v.precio, inventory_code: pizza ? size?.code : v.inventoryCode, inventory: { create: { current_stock: pizza ? 0 : v.stock ?? 0 } } };
+  return pizza ? { nombre: v.nombre.trim(), precio: v.precio, inventory_code: null } : { nombre: v.nombre.trim(), precio: v.precio, inventory_code: v.inventoryCode, inventory: { create: { current_stock: v.stock ?? 0 } } };
 }
 
 export async function ensurePizzaDoughInventory(tx: any) {
@@ -65,7 +66,13 @@ export async function ensurePizzaDoughInventory(tx: any) {
 }
 
 export function registerProductsIpc() {
-  ipcMain.handle('products:list', () => wrap(async () => (await getPrisma().product.findMany({ where: { activo: true }, include: { variants: { include: { inventory: true }, orderBy: { nombre: 'asc' } } }, orderBy: [{ categoria: 'asc' }, { nombre: 'asc' }] })).map(mapProduct)));
+  ipcMain.handle('products:list', (_e, includeInactive?: boolean) => wrap(async () => {
+    const prisma = getPrisma();
+    const products = await prisma.product.findMany({ where: includeInactive ? {} : { activo: true }, include: { variants: { include: { inventory: true }, orderBy: { nombre: 'asc' } } }, orderBy: [{ categoria: 'asc' }, { nombre: 'asc' }] });
+    const dough = await prisma.productVariant.findMany({ where: { inventory_code: { in: PIZZA_SIZES.map((s) => s.code) } }, include: { inventory: true } });
+    const stockBySize = Object.fromEntries(PIZZA_SIZES.map((size) => [size.nombre, dough.find((v) => v.inventory_code === size.code)?.inventory?.current_stock ?? 0]));
+    return products.filter((p) => includeInactive || p.activo).map((p) => mapProduct(p.tipo === 'PIZZA' ? { ...p, __doughBySize: stockBySize } : p));
+  }));
   ipcMain.handle('products:create', (_e, req: ProductInput) => wrap(() => getPrisma().$transaction(async (tx) => {
     if (!req.actorId) throw new Error('Usuario requerido');
     await requireRole(tx, req.actorId, ['ADMIN']);
